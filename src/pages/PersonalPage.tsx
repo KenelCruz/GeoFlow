@@ -4,7 +4,12 @@
 import React, { useState } from 'react';
 import { Pencil, Phone, Plus, Trash2, X } from 'lucide-react';
 import { ETIQUETAS_CARGO } from '../domain/formatters';
+import {
+  puedeEliminarRegistros,
+  puedeGestionarOperacion,
+} from '../domain/operacion';
 import type { CargoPersonal, Personal } from '../domain/types';
+import { useAuth } from '../hooks/useAuth';
 import { useOperacionData } from '../hooks/useOperacionData';
 
 const CARGOS: CargoPersonal[] = [
@@ -15,7 +20,11 @@ const CARGOS: CargoPersonal[] = [
 ];
 
 export const PersonalPage: React.FC = () => {
+  const { rolActivo } = useAuth();
   const { personal, guardarPersonal, eliminarPersonal } = useOperacionData();
+
+  const puedeGestionar = puedeGestionarOperacion(rolActivo);
+  const puedeEliminar = puedeEliminarRegistros(rolActivo);
 
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editandoId, setEditandoId] = useState<string | undefined>(undefined);
@@ -23,6 +32,7 @@ export const PersonalPage: React.FC = () => {
   const [cargo, setCargo] = useState<CargoPersonal>('tecnico');
   const [telefono, setTelefono] = useState('');
   const [activo, setActivo] = useState(true);
+  const [guardando, setGuardando] = useState(false);
 
   const abrirNuevo = () => {
     setEditandoId(undefined);
@@ -44,15 +54,22 @@ export const PersonalPage: React.FC = () => {
 
   const handleGuardar = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nombre.trim()) return;
-    await guardarPersonal({
-      id: editandoId,
-      nombre: nombre.trim(),
-      cargo,
-      telefono: telefono.trim(),
-      activo,
-    });
-    setModalAbierto(false);
+    if (!nombre.trim() || !puedeGestionar) return;
+    setGuardando(true);
+    try {
+      await guardarPersonal({
+        id: editandoId,
+        nombre: nombre.trim(),
+        cargo,
+        telefono: telefono.trim(),
+        activo,
+      });
+      setModalAbierto(false);
+    } catch {
+      // Error mostrado en banner
+    } finally {
+      setGuardando(false);
+    }
   };
 
   return (
@@ -68,14 +85,16 @@ export const PersonalPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={abrirNuevo}
-          className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 whitespace-nowrap shrink-0"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Agregar personal</span>
-        </button>
+        {puedeGestionar && (
+          <button
+            type="button"
+            onClick={abrirNuevo}
+            className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 whitespace-nowrap shrink-0"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Agregar personal</span>
+          </button>
+        )}
       </div>
 
       <div className="divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -116,24 +135,30 @@ export const PersonalPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                type="button"
-                onClick={() => abrirEditar(p)}
-                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                aria-label={`Editar ${p.nombre}`}
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => eliminarPersonal(p.id)}
-                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-600"
-                aria-label={`Eliminar ${p.nombre}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
+            {(puedeGestionar || puedeEliminar) && (
+              <div className="flex items-center gap-1 shrink-0">
+                {puedeGestionar && (
+                  <button
+                    type="button"
+                    onClick={() => abrirEditar(p)}
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                    aria-label={`Editar ${p.nombre}`}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                )}
+                {puedeEliminar && (
+                  <button
+                    type="button"
+                    onClick={() => eliminarPersonal(p.id)}
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    aria-label={`Eliminar ${p.nombre}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
 
@@ -144,7 +169,7 @@ export const PersonalPage: React.FC = () => {
         )}
       </div>
 
-      {modalAbierto && (
+      {modalAbierto && puedeGestionar && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
           <div className="w-full rounded-t-3xl bg-white p-6 shadow-xl sm:max-w-md sm:rounded-2xl">
             <div className="flex items-center justify-between">
@@ -226,9 +251,10 @@ export const PersonalPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                  disabled={guardando}
+                  className="min-h-[44px] rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                 >
-                  Guardar
+                  {guardando ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
             </form>

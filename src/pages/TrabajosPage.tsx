@@ -1,5 +1,5 @@
 /**
- * Lista de trabajos con filtro por estado, búsqueda por cliente y formulario modal para crear/editar.
+ * Lista de trabajos con filtro por estado, búsqueda por cliente y creación para admin/coordinador.
  */
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -16,11 +16,15 @@ import {
   formatearFechaCorta,
   obtenerFechaHoyISO,
 } from '../domain/formatters';
+import { puedeGestionarOperacion } from '../domain/operacion';
 import type { EstadoTrabajo, Trabajo } from '../domain/types';
+import { useAuth } from '../hooks/useAuth';
 import { useOperacionData } from '../hooks/useOperacionData';
 
 export const TrabajosPage: React.FC = () => {
+  const { rolActivo } = useAuth();
   const { trabajos, personal, guardarTrabajo } = useOperacionData();
+  const puedeCrear = puedeGestionarOperacion(rolActivo);
 
   const [busqueda, setBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<EstadoTrabajo | 'todos'>(
@@ -36,6 +40,7 @@ export const TrabajosPage: React.FC = () => {
   const [fechaPrevista, setFechaPrevista] = useState(obtenerFechaHoyISO());
   const [estado, setEstado] = useState<EstadoTrabajo>('programado');
   const [responsableId, setResponsableId] = useState<string>('');
+  const [guardando, setGuardando] = useState(false);
 
   const trabajosFiltrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -63,24 +68,31 @@ export const TrabajosPage: React.FC = () => {
 
   const handleCrearTrabajo = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!cliente.trim()) return;
+    if (!cliente.trim() || !puedeCrear) return;
 
-    await guardarTrabajo({
-      cliente: cliente.trim(),
-      contacto: contacto.trim(),
-      ubicacion_texto: ubicacionTexto.trim(),
-      lat: null,
-      lng: null,
-      tipo_levantamiento: tipoLevantamiento.trim() || 'Deslinde',
-      fecha_prevista: fechaPrevista,
-      fecha_inicio_real: null,
-      fecha_fin_real: null,
-      estado,
-      responsable_id: responsableId || null,
-    });
+    setGuardando(true);
+    try {
+      await guardarTrabajo({
+        cliente: cliente.trim(),
+        contacto: contacto.trim(),
+        ubicacion_texto: ubicacionTexto.trim(),
+        lat: null,
+        lng: null,
+        tipo_levantamiento: tipoLevantamiento.trim() || 'Deslinde',
+        fecha_prevista: fechaPrevista,
+        fecha_inicio_real: null,
+        fecha_fin_real: null,
+        estado,
+        responsable_id: responsableId || null,
+      });
 
-    limpiarFormulario();
-    setModalAbierto(false);
+      limpiarFormulario();
+      setModalAbierto(false);
+    } catch {
+      // El error queda visible en el banner de Layout
+    } finally {
+      setGuardando(false);
+    }
   };
 
   const obtenerNombreResponsable = (id: string | null) => {
@@ -101,14 +113,16 @@ export const TrabajosPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setModalAbierto(true)}
-          className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 whitespace-nowrap shrink-0"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Nuevo trabajo</span>
-        </button>
+        {puedeCrear && (
+          <button
+            type="button"
+            onClick={() => setModalAbierto(true)}
+            className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 whitespace-nowrap shrink-0"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Nuevo trabajo</span>
+          </button>
+        )}
       </div>
 
       {/* Buscador por cliente */}
@@ -208,7 +222,7 @@ export const TrabajosPage: React.FC = () => {
       </div>
 
       {/* Modal para crear trabajo */}
-      {modalAbierto && (
+      {modalAbierto && puedeCrear && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
           <div className="max-h-[90vh] w-full overflow-y-auto rounded-t-3xl bg-white p-6 shadow-xl sm:max-w-lg sm:rounded-2xl">
             <div className="flex items-center justify-between">
@@ -342,9 +356,10 @@ export const TrabajosPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                  disabled={guardando}
+                  className="min-h-[44px] rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                 >
-                  Guardar trabajo
+                  {guardando ? 'Guardando...' : 'Guardar trabajo'}
                 </button>
               </div>
             </form>

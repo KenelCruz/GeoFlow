@@ -1,17 +1,21 @@
 /**
- * Indicador de estado sin conexión y sincronización pendiente de la bitácora.
+ * Indicador de estado sin conexión, cola de sincronización y errores de sincronización pendientes.
  */
 import React from 'react';
-import { CloudOff, RefreshCw } from 'lucide-react';
+import { AlertCircle, CloudOff, RefreshCw } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useOperacionData } from '../hooks/useOperacionData';
 
 export const OfflineIndicator: React.FC = () => {
   const isOnline = useOnlineStatus();
-  const { pendientesSincronizar, sincronizando, sincronizarColaAhora } =
-    useOperacionData();
+  const {
+    pendientesSincronizar,
+    sincronizando,
+    ultimoErrorSincronizacion,
+    sincronizarColaAhora,
+  } = useOperacionData();
 
-  if (isOnline && pendientesSincronizar === 0) {
+  if (isOnline && pendientesSincronizar === 0 && !ultimoErrorSincronizacion) {
     return null;
   }
 
@@ -19,11 +23,20 @@ export const OfflineIndicator: React.FC = () => {
     <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
         <div className="flex items-center gap-2 font-medium">
-          <CloudOff className="h-4 w-4 shrink-0 text-amber-700" />
+          {!isOnline ? (
+            <CloudOff className="h-4 w-4 shrink-0 text-amber-700" />
+          ) : (
+            <AlertCircle className="h-4 w-4 shrink-0 text-amber-700" />
+          )}
           {!isOnline ? (
             <span>
-              Sin conexión. Las notas de bitácora se guardan en el dispositivo y
-              se sincronizarán al volver la señal.
+              Sin conexión. Las notas y fotos de bitácora se guardan en el
+              dispositivo y se sincronizarán al volver la señal.
+            </span>
+          ) : ultimoErrorSincronizacion ? (
+            <span>
+              {pendientesSincronizar} registro(s) pendiente(s). Error al
+              sincronizar: {ultimoErrorSincronizacion}
             </span>
           ) : (
             <span>

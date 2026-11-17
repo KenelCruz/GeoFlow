@@ -1,6 +1,6 @@
 /**
  * Contexto de autenticación y selección de empresa activa (multi-tenant).
- * Soporta Supabase Auth real y modo demostración local cuando no hay credenciales configuradas.
+ * Soporta Supabase Auth real y modo demostración solo cuando isDemoModeAllowed es verdadero.
  */
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type {
@@ -10,7 +10,13 @@ import type {
   UsuarioSesion,
 } from '../domain/types';
 import { MEMBRESIAS_DEMO, USUARIO_DEMO } from '../lib/demoData';
-import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { limpiarCacheAlCerrarSesion } from '../lib/offlineDb';
+import {
+  isDemoModeAllowed,
+  isSupabaseConfigured,
+  isSupabaseMissingInProd,
+  supabase,
+} from '../lib/supabase';
 
 interface AuthContextValue {
   usuario: UsuarioSesion | null;
@@ -19,6 +25,7 @@ interface AuthContextValue {
   rolActivo: RolEmpresa | null;
   cargando: boolean;
   modoDemo: boolean;
+  errorConfiguracion: boolean;
   iniciarSesion: (email: string, password: string) => Promise<{ error?: string }>;
   iniciarSesionDemo: () => void;
   seleccionarEmpresa: (empresaId: string) => void;
@@ -29,6 +36,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const STORAGE_EMPRESA_KEY = 'cotizador_empresa_activa_id';
 const STORAGE_DEMO_AUTH_KEY = 'cotizador_demo_autenticado';
+const STORAGE_MEMBRESIAS_CACHE_KEY = 'cotizador_membresias_cache';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -40,7 +48,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
   const [cargando, setCargando] = useState(true);
 
-  // Carga las empresas a las que pertenece el usuario desde Supabase
+  // Carga las empresas a las que pertenece el usuario desde Supabase (con respaldo en caché si está offline)
   const cargarMembresiasSupabase = async (userId: string) => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -56,10 +64,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         empresa: row.empresa as Empresa | undefined,
       }));
       setMembresias(lista);
+      try {
+        localStorage.setItem(
+          STORAGE_MEMBRESIAS_CACHE_KEY,
+          JSON.stringify({ userId, lista })
+        );
+      } catch {
+        // Ignorar si almacenamiento está lleno
+      }
       if (lista.length === 1) {
         setEmpresaActivaId(lista[0].empresa_id);
         localStorage.setItem(STORAGE_EMPRESA_KEY, lista[0].empresa_id);
       }
+      return;
+    }
+
+    // Si está sin conexión al abrir la PWA, intentar recuperar membresías cacheadas del mismo usuario
+    try {
+      const raw = localStorage.getItem(STORAGE_MEMBRESIAS_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as {
+          userId: string;
+          lista: UsuarioEmpresa[];
+        };
+        if (parsed.userId === userId) {
+          setMembresias(parsed.lista);
+        }
+      }
+    } catch {
+      // Sin caché válido
     }
   };
 
@@ -87,11 +120,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         return;
       }
 
-      // Modo demostración local
-      const demoActivo = localStorage.getItem(STORAGE_DEMO_AUTH_KEY) === 'true';
-      if (activo && demoActivo) {
-        setUsuario(USUARIO_DEMO);
-        setMembresias(MEMBRESIAS_DEMO);
+      if (isDemoModeAllowed) {
+        const demoActivo =
+          localStorage.getItem(STORAGE_DEMO_AUTH_KEY) === 'true';
+        if (activo && demoActivo) {
+          setUsuario(USUARIO_DEMO);
+          setMembresias(MEMBRESIAS_DEMO);
+        }
       }
       if (activo) setCargando(false);
     };
@@ -108,6 +143,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   ): Promise<{ error?: string }> => {
     if (!email.trim() || !password.trim()) {
       return { error: 'Ingresa tu correo electrónico y contraseña.' };
+    }
+
+    if (isSupabaseMissingInProd) {
+      return {
+        error:
+          'Falta configurar las variables de Supabase (VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY) para este entorno.',
+      };
     }
 
     if (isSupabaseConfigured && supabase) {
@@ -137,7 +179,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       return {};
     }
 
-    // En modo demo, permite iniciar con cualquier correo/contraseña válida
+    if (!isDemoModeAllowed) {
+      return { error: 'El modo demostración no está habilitado.' };
+    }
+
     localStorage.setItem(STORAGE_DEMO_AUTH_KEY, 'true');
     setUsuario({
       ...USUARIO_DEMO,
@@ -148,6 +193,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const iniciarSesionDemo = () => {
+    if (!isDemoModeAllowed) return;
     localStorage.setItem(STORAGE_DEMO_AUTH_KEY, 'true');
     setUsuario(USUARIO_DEMO);
     setMembresias(MEMBRESIAS_DEMO);
@@ -162,8 +208,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     if (isSupabaseConfigured && supabase) {
       await supabase.auth.signOut();
     }
+    try {
+      await limpiarCacheAlCerrarSesion();
+    } catch {
+      // Ignorar si IndexedDB no está disponible
+    }
     localStorage.removeItem(STORAGE_DEMO_AUTH_KEY);
     localStorage.removeItem(STORAGE_EMPRESA_KEY);
+    localStorage.removeItem(STORAGE_MEMBRESIAS_CACHE_KEY);
     setUsuario(null);
     setMembresias([]);
     setEmpresaActivaId(null);
@@ -180,7 +232,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         empresaActiva: membresiaActiva?.empresa ?? null,
         rolActivo: membresiaActiva?.rol ?? null,
         cargando,
-        modoDemo: !isSupabaseConfigured,
+        modoDemo: isDemoModeAllowed,
+        errorConfiguracion: isSupabaseMissingInProd,
         iniciarSesion,
         iniciarSesionDemo,
         seleccionarEmpresa,

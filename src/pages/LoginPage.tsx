@@ -1,14 +1,19 @@
 /**
  * Pantalla de inicio de sesión con correo y contraseña.
- * Incluye acceso rápido en modo demostración cuando Supabase no está configurado.
+ * Bloquea el acceso si faltan credenciales de Supabase en producción; solo habilita demo cuando está permitido.
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Compass, Lock, Mail } from 'lucide-react';
+import { AlertTriangle, Compass, Lock, Mail } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 export const LoginPage: React.FC = () => {
-  const { iniciarSesion, iniciarSesionDemo, modoDemo } = useAuth();
+  const {
+    iniciarSesion,
+    iniciarSesionDemo,
+    modoDemo,
+    errorConfiguracion,
+  } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState(
@@ -52,6 +57,17 @@ export const LoginPage: React.FC = () => {
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          {errorConfiguracion && (
+            <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+              <span>
+                Falta configurar <strong>VITE_SUPABASE_URL</strong> y{' '}
+                <strong>VITE_SUPABASE_ANON_KEY</strong> en este entorno de
+                producción.
+              </span>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label
@@ -103,7 +119,7 @@ export const LoginPage: React.FC = () => {
 
             <button
               type="submit"
-              disabled={enviando}
+              disabled={enviando || errorConfiguracion}
               className="min-h-[48px] w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-60"
             >
               {enviando ? 'Iniciando sesión...' : 'Iniciar sesión'}
@@ -113,7 +129,7 @@ export const LoginPage: React.FC = () => {
           {modoDemo && (
             <div className="mt-5 border-t border-slate-100 pt-5">
               <p className="mb-3 text-xs text-slate-500">
-                Supabase no está configurado en el entorno. Puedes explorar la
+                Entorno de desarrollo sin Supabase configurado. Puedes probar la
                 aplicación con datos ficticios de demostración.
               </p>
               <button

@@ -1,19 +1,22 @@
 /**
- * Shell principal móvil-primero con barra superior limpia (contrato de 3 zonas)
- * y barra de navegación inferior ergonómica para uso con una mano en campo.
+ * Shell principal móvil-primero con barra superior limpia (contrato de 3 zonas),
+ * banner de errores operativos y navegación inferior ergonómica para uso con una mano.
  */
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
+  AlertCircle,
   Briefcase,
   Building2,
   CalendarDays,
   LogOut,
   Truck,
   Users,
+  X,
 } from 'lucide-react';
 import { ETIQUETAS_ROL } from '../domain/formatters';
 import { useAuth } from '../hooks/useAuth';
+import { useOperacionData } from '../hooks/useOperacionData';
 import { OfflineIndicator } from './OfflineIndicator';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -26,6 +29,7 @@ const NAV_ITEMS = [
 
 export const Layout: React.FC = () => {
   const { empresaActiva, rolActivo, membresias, cerrarSesion } = useAuth();
+  const { errorOperacion, limpiarErrorOperacion } = useOperacionData();
   const navigate = useNavigate();
 
   const handleSalir = async () => {
@@ -92,6 +96,28 @@ export const Layout: React.FC = () => {
       </header>
 
       <OfflineIndicator />
+
+      {errorOperacion && (
+        <div
+          role="alert"
+          className="border-b border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-900"
+        >
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-700" />
+              <span>{errorOperacion}</span>
+            </div>
+            <button
+              type="button"
+              onClick={limpiarErrorOperacion}
+              className="flex min-h-[32px] min-w-[32px] items-center justify-center rounded-lg text-red-700 hover:bg-red-100"
+              aria-label="Cerrar aviso"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Contexto silencioso de empresa activa */}
       {empresaActiva && (

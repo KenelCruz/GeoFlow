@@ -24,17 +24,20 @@ Aplicación web progresiva (**PWA**) diseñada para empresas pequeñas de levant
 │   ├── pwa-512x512.png
 │   └── pwa-maskable-512x512.png
 ├── supabase/
-│   └── schema.sql               # Tablas, índices, funciones y políticas RLS
+│   ├── schema.sql               # Esquema base multi-tenant, FK compuestas, RPC y RLS
+│   └── migrations/              # Migraciones SQL incrementales con RLS y Storage
 ├── src/
 │   ├── domain/                  # Lógica de negocio pura (sin React)
 │   │   ├── types.ts
 │   │   ├── formatters.ts
+│   │   ├── operacion.ts         # Permisos por rol y transiciones de estado
+│   │   ├── operacion.test.ts
 │   │   ├── conflictos.ts
 │   │   └── conflictos.test.ts   # Pruebas unitarias (Vitest)
 │   ├── lib/
-│   │   ├── supabase.ts          # Cliente Supabase
-│   │   ├── offlineDb.ts         # IndexedDB + cola de sincronización
-│   │   └── demoData.ts          # Datos ficticios para modo demostración
+│   │   ├── supabase.ts          # Cliente Supabase (bloquea demo automático en prod)
+│   │   ├── offlineDb.ts         # IndexedDB (caché por empresa + cola binaria de fotos)
+│   │   └── demoData.ts          # Datos ficticios para desarrollo local
 │   ├── hooks/
 │   │   ├── useAuth.tsx
 │   │   ├── useOperacionData.tsx
@@ -66,11 +69,11 @@ Aplicación web progresiva (**PWA**) diseñada para empresas pequeñas de levant
 ## Configuración de Supabase
 
 1. Crea un proyecto nuevo en [Supabase](https://supabase.com/).
-2. Abre el **SQL Editor** en tu proyecto y ejecuta el contenido completo de `supabase/schema.sql`. Esto creará:
-   - Todas las tablas multi-tenant con `empresa_id`.
-   - Índices para consultas por empresa y fecha.
-   - Funciones auxiliares `es_miembro_empresa` y `tiene_rol_empresa`.
-   - Políticas **RLS** en todas las tablas y en el bucket de Storage `bitacora-fotos`.
+2. Abre el **SQL Editor** en tu proyecto y ejecuta `supabase/schema.sql` (para instalaciones nuevas) o las migraciones en `supabase/migrations/` (para instalaciones existentes). Esto crea:
+   - Tablas multi-tenant con `empresa_id` y claves foráneas compuestas `(id, empresa_id)` para impedir cruces entre empresas.
+   - Triggers de protección para impedir cambiar `empresa_id` en `UPDATE`.
+   - Funciones auxiliares (`es_miembro_empresa`, `tiene_rol_empresa`, `es_uuid_valido`) y RPC controlada (`actualizar_estado_trabajo_campo`) para que los técnicos actualicen el estado en campo sin permisos de edición sobre datos administrativos.
+   - Políticas **RLS** en todas las tablas y en el bucket privado `bitacora-fotos` (`{empresa_id}/{trabajo_id}/{archivo}`).
 3. Crea un archivo `.env` a partir de `.env.example` con tus credenciales:
    ```env
    VITE_SUPABASE_URL="https://tu-proyecto.supabase.co"
@@ -78,7 +81,7 @@ Aplicación web progresiva (**PWA**) diseñada para empresas pequeñas de levant
    ```
 4. En **Authentication → Users**, crea los usuarios y luego vincúlalos a una empresa insertando filas en `empresas` y `usuarios_empresa`.
 
-> **Nota sobre el modo demostración:** Si `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` no están configuradas, la aplicación funciona automáticamente en **modo demostración local** con datos ficticios claramente marcados para probar todas las pantallas sin configuración previa.
+> **Nota sobre el modo demostración:** El modo demostración local con datos ficticios solo está habilitado en desarrollo (`npm run dev`) o si se define explícitamente `VITE_ENABLE_DEMO="true"`. En compilaciones de producción sin credenciales de Supabase, el acceso queda bloqueado por seguridad.
 
 ---
 

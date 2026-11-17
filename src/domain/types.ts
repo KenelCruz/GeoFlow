@@ -102,7 +102,8 @@ export interface BitacoraEntrada {
   autor_nombre?: string;
   fecha_hora: string; // ISO 8601
   nota: string;
-  foto_url: string | null;
+  foto_url: string | null; // Ruta en Storage ({empresa_id}/{trabajo_id}/{archivo}) o URL local en demo
+  foto_preview_url?: string | null; // URL firmada temporal o ObjectURL/DataURL local para renderizado
   pendiente_sincronizar?: boolean;
 }
 
@@ -120,6 +121,8 @@ export interface ColaSincronizacionItem {
   tipo: 'bitacora_crear';
   empresa_id: string;
   payload: BitacoraEntrada;
+  foto_blob?: Blob | null;
   creado_en: string;
   intentos: number;
+  ultimo_error?: string | null;
 }

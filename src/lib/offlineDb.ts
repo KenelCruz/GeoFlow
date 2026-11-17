@@ -1,13 +1,33 @@
 /**
- * Persistencia local en IndexedDB para la bitácora de campo sin conexión
- * y la cola de sincronización automática al recuperar señal.
+ * Persistencia local en IndexedDB:
+ * - Caché operativo por empresa (trabajos, personal, vehículos y asignaciones) para trabajar sin señal.
+ * - Entradas de bitácora locales y cola de sincronización con soporte de Blob fotográfico y reintentos.
  */
-import type { BitacoraEntrada, ColaSincronizacionItem } from '../domain/types';
+import type {
+  BitacoraEntrada,
+  ColaSincronizacionItem,
+  Personal,
+  Trabajo,
+  TrabajoPersonal,
+  TrabajoVehiculo,
+  Vehiculo,
+} from '../domain/types';
 
 const DB_NAME = 'cotizador_levantamientos_offline';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_BITACORA = 'bitacora_local';
 const STORE_COLA = 'cola_sincronizacion';
+const STORE_CACHE = 'cache_operacion';
+
+export interface CacheOperacionEmpresa {
+  empresa_id: string;
+  trabajos: Trabajo[];
+  personal: Personal[];
+  vehiculos: Vehiculo[];
+  asignacionesPersonal: TrabajoPersonal[];
+  asignacionesVehiculo: TrabajoVehiculo[];
+  actualizado_en: string;
+}
 
 function abrirBaseDatos(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -29,9 +49,39 @@ function abrirBaseDatos(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_COLA)) {
         db.createObjectStore(STORE_COLA, { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains(STORE_CACHE)) {
+        db.createObjectStore(STORE_CACHE, { keyPath: 'empresa_id' });
+      }
     };
 
     request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/** Guarda el snapshot operativo de una empresa para lectura sin conexión */
+export async function guardarCacheOperacion(
+  snapshot: CacheOperacionEmpresa
+): Promise<void> {
+  const db = await abrirBaseDatos();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_CACHE, 'readwrite');
+    tx.objectStore(STORE_CACHE).put(snapshot);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/** Recupera el snapshot operativo guardado en caché para una empresa */
+export async function obtenerCacheOperacion(
+  empresaId: string
+): Promise<CacheOperacionEmpresa | null> {
+  const db = await abrirBaseDatos();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_CACHE, 'readonly');
+    const request = tx.objectStore(STORE_CACHE).get(empresaId);
+    request.onsuccess = () =>
+      resolve((request.result as CacheOperacionEmpresa | undefined) ?? null);
     request.onerror = () => reject(request.error);
   });
 }
@@ -65,7 +115,7 @@ export async function obtenerBitacoraLocalPorEmpresa(
   });
 }
 
-/** Encola una entrada de bitácora para sincronizar cuando vuelva la conexión */
+/** Encola o actualiza una entrada de bitácora para sincronizar cuando vuelva la conexión */
 export async function encolarSincronizacion(
   item: ColaSincronizacionItem
 ): Promise<void> {
@@ -98,6 +148,30 @@ export async function eliminarDeColaSincronizacion(id: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_COLA, 'readwrite');
     tx.objectStore(STORE_COLA).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * Limpia el caché operativo y entradas ya sincronizadas al cerrar sesión,
+ * conservando únicamente las entradas con sincronización pendiente para evitar pérdida de datos.
+ */
+export async function limpiarCacheAlCerrarSesion(): Promise<void> {
+  const db = await abrirBaseDatos();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE_CACHE, STORE_BITACORA], 'readwrite');
+    tx.objectStore(STORE_CACHE).clear();
+    const bitacoraStore = tx.objectStore(STORE_BITACORA);
+    const req = bitacoraStore.getAll();
+    req.onsuccess = () => {
+      const todas = (req.result as BitacoraEntrada[]) ?? [];
+      for (const item of todas) {
+        if (!item.pendiente_sincronizar) {
+          bitacoraStore.delete(item.id);
+        }
+      }
+    };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });

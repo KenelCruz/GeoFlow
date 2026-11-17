@@ -1,6 +1,6 @@
 /**
  * Bitácora de campo por trabajo: nota, fecha/hora automáticas, foto desde cámara o galería,
- * persistencia local en IndexedDB sin conexión y sincronización al recuperar señal.
+ * subida a Supabase Storage y persistencia offline en IndexedDB.
  */
 import React, { useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -25,7 +25,8 @@ export const BitacoraPage: React.FC = () => {
   );
 
   const [nota, setNota] = useState('');
-  const [fotoDataUrl, setFotoDataUrl] = useState<string | null>(null);
+  const [fotoArchivo, setFotoArchivo] = useState<File | null>(null);
+  const [fotoPreviewUrl, setFotoPreviewUrl] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   const inputFotoRef = useRef<HTMLInputElement | null>(null);
 
@@ -33,31 +34,40 @@ export const BitacoraPage: React.FC = () => {
     const archivo = e.target.files?.[0];
     if (!archivo) return;
 
+    setFotoArchivo(archivo);
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        setFotoDataUrl(reader.result);
+        setFotoPreviewUrl(reader.result);
       }
     };
     reader.readAsDataURL(archivo);
   };
 
-  const handleGuardarEntrada = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!id || (!nota.trim() && !fotoDataUrl)) return;
-
-    setGuardando(true);
-    await agregarEntradaBitacora(
-      id,
-      nota.trim() || 'Registro fotográfico en campo',
-      fotoDataUrl
-    );
-    setNota('');
-    setFotoDataUrl(null);
+  const limpiarFoto = () => {
+    setFotoArchivo(null);
+    setFotoPreviewUrl(null);
     if (inputFotoRef.current) {
       inputFotoRef.current.value = '';
     }
-    setGuardando(false);
+  };
+
+  const handleGuardarEntrada = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || (!nota.trim() && !fotoArchivo)) return;
+
+    setGuardando(true);
+    try {
+      await agregarEntradaBitacora(
+        id,
+        nota.trim() || 'Registro fotográfico en campo',
+        fotoArchivo
+      );
+      setNota('');
+      limpiarFoto();
+    } finally {
+      setGuardando(false);
+    }
   };
 
   if (!trabajo) {
@@ -118,20 +128,17 @@ export const BitacoraPage: React.FC = () => {
           className="w-full rounded-xl border border-slate-300 p-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
         />
 
-        {fotoDataUrl && (
+        {fotoPreviewUrl && (
           <div className="relative inline-block">
             <img
-              src={fotoDataUrl}
+              src={fotoPreviewUrl}
               alt="Vista previa de foto de campo"
               referrerPolicy="no-referrer"
               className="h-32 w-auto rounded-xl border border-slate-200 object-cover"
             />
             <button
               type="button"
-              onClick={() => {
-                setFotoDataUrl(null);
-                if (inputFotoRef.current) inputFotoRef.current.value = '';
-              }}
+              onClick={limpiarFoto}
               className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-white shadow"
               aria-label="Quitar foto"
             >
@@ -156,7 +163,7 @@ export const BitacoraPage: React.FC = () => {
 
           <button
             type="submit"
-            disabled={guardando || (!nota.trim() && !fotoDataUrl)}
+            disabled={guardando || (!nota.trim() && !fotoArchivo)}
             className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
           >
             <Send className="h-4 w-4" />
@@ -167,44 +174,54 @@ export const BitacoraPage: React.FC = () => {
 
       {/* Historial cronológico */}
       <div className="space-y-3">
-        {entradas.map((entrada) => (
-          <article
-            key={entrada.id}
-            className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2.5"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-800">
-                  {entrada.autor_nombre ?? 'Técnico'}
-                </span>
-                <span aria-hidden="true">·</span>
-                <time className="font-mono tabular-nums">
-                  {formatearFechaHora(entrada.fecha_hora)}
-                </time>
+        {entradas.map((entrada) => {
+          const imagenSrc =
+            entrada.foto_preview_url ??
+            (entrada.foto_url &&
+            (entrada.foto_url.startsWith('data:') ||
+              entrada.foto_url.startsWith('http'))
+              ? entrada.foto_url
+              : null);
+
+          return (
+            <article
+              key={entrada.id}
+              className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2.5"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-800">
+                    {entrada.autor_nombre || 'Técnico'}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <time className="font-mono tabular-nums">
+                    {formatearFechaHora(entrada.fecha_hora)}
+                  </time>
+                </div>
+
+                {entrada.pendiente_sincronizar && (
+                  <span className="inline-flex items-center gap-1 font-medium text-amber-700">
+                    <CloudOff className="h-3.5 w-3.5" />
+                    <span>Pendiente de sincronizar</span>
+                  </span>
+                )}
               </div>
 
-              {entrada.pendiente_sincronizar && (
-                <span className="inline-flex items-center gap-1 font-medium text-amber-700">
-                  <CloudOff className="h-3.5 w-3.5" />
-                  <span>Pendiente de sincronizar</span>
-                </span>
+              <p className="text-sm leading-relaxed text-slate-800 whitespace-pre-wrap">
+                {entrada.nota}
+              </p>
+
+              {imagenSrc && (
+                <img
+                  src={imagenSrc}
+                  alt="Evidencia fotográfica de campo"
+                  referrerPolicy="no-referrer"
+                  className="max-h-72 w-full rounded-xl border border-slate-200 object-cover sm:w-auto"
+                />
               )}
-            </div>
-
-            <p className="text-sm leading-relaxed text-slate-800 whitespace-pre-wrap">
-              {entrada.nota}
-            </p>
-
-            {entrada.foto_url && (
-              <img
-                src={entrada.foto_url}
-                alt="Evidencia fotográfica de campo"
-                referrerPolicy="no-referrer"
-                className="max-h-72 w-full rounded-xl border border-slate-200 object-cover sm:w-auto"
-              />
-            )}
-          </article>
-        ))}
+            </article>
+          );
+        })}
 
         {entradas.length === 0 && (
           <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
