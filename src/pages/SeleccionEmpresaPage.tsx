@@ -28,7 +28,7 @@ export const SeleccionEmpresaPage: React.FC = () => {
           <p className="text-xs font-medium text-slate-500">
             Sesión iniciada como {usuario?.email}
           </p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 [text-wrap:balance]">
             Selecciona una empresa
           </h1>
           <p className="mt-1 text-sm text-slate-600">
@@ -37,15 +37,15 @@ export const SeleccionEmpresaPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="space-y-3">
+        <div className="divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200 bg-white">
           {membresias.map((m) => (
             <button
               key={m.empresa_id}
               type="button"
               onClick={() => handleElegir(m.empresa_id)}
-              className="flex min-h-[76px] w-full items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-emerald-500 hover:bg-emerald-50/30"
+              className="flex min-h-[76px] w-full items-center justify-between gap-4 p-4 text-left transition-colors hover:bg-slate-50"
             >
-              <div className="flex items-center gap-3.5 min-w-0">
+              <div className="flex min-w-0 items-center gap-3.5">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
                   <Building2 className="h-5 w-5" />
                 </div>
@@ -53,7 +53,7 @@ export const SeleccionEmpresaPage: React.FC = () => {
                   <div className="truncate text-base font-semibold text-slate-900">
                     {m.empresa?.nombre ?? 'Empresa'}
                   </div>
-                  <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
                     <span className="font-mono tabular-nums">
                       RNC {m.empresa?.rnc ?? 'N/D'}
                     </span>
@@ -67,7 +67,7 @@ export const SeleccionEmpresaPage: React.FC = () => {
           ))}
 
           {membresias.length === 0 && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">
+            <div className="p-8 text-center text-sm text-slate-600">
               Tu usuario aún no está asignado a ninguna empresa. Solicita acceso
               al administrador.
             </div>
@@ -77,7 +77,7 @@ export const SeleccionEmpresaPage: React.FC = () => {
         <button
           type="button"
           onClick={handleSalir}
-          className="mt-6 inline-flex min-h-[44px] items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
+          className="mt-6 inline-flex min-h-[44px] items-center gap-2 rounded-xl px-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900"
         >
           <LogOut className="h-4 w-4" />
           <span>Cerrar sesión</span>

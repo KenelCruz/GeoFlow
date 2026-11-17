@@ -8,9 +8,12 @@ import {
   ArrowLeft,
   Camera,
   CloudOff,
+  ImageOff,
   Send,
   X,
 } from 'lucide-react';
+import { PageHeader } from '../components/ui/PageHeader';
+import { EmptyState } from '../components/ui/StateViews';
 import { formatearFechaHora } from '../domain/formatters';
 import { useOperacionData } from '../hooks/useOperacionData';
 
@@ -28,6 +31,9 @@ export const BitacoraPage: React.FC = () => {
   const [fotoArchivo, setFotoArchivo] = useState<File | null>(null);
   const [fotoPreviewUrl, setFotoPreviewUrl] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const [imagenesConError, setImagenesConError] = useState<
+    Record<string, boolean>
+  >({});
   const inputFotoRef = useRef<HTMLInputElement | null>(null);
 
   const handleSeleccionarFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -65,6 +71,8 @@ export const BitacoraPage: React.FC = () => {
       );
       setNota('');
       limpiarFoto();
+    } catch {
+      // Error manejado por el contexto
     } finally {
       setGuardando(false);
     }
@@ -99,19 +107,15 @@ export const BitacoraPage: React.FC = () => {
         </Link>
       </div>
 
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-          Bitácora de campo
-        </h1>
-        <p className="text-sm text-slate-600">
-          {trabajo.cliente} · {trabajo.ubicacion_texto}
-        </p>
-      </div>
+      <PageHeader
+        title="Bitácora de campo"
+        subtitle={`${trabajo.cliente} · ${trabajo.ubicacion_texto || 'Sin ubicación'}`}
+      />
 
       {/* Formulario de nueva entrada (funciona sin conexión) */}
       <form
         onSubmit={handleGuardarEntrada}
-        className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3"
+        className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"
       >
         <label
           htmlFor="nota-campo"
@@ -125,7 +129,7 @@ export const BitacoraPage: React.FC = () => {
           value={nota}
           onChange={(e) => setNota(e.target.value)}
           placeholder="Ej. Se colocó estaca en vértice sur, buena recepción RTK..."
-          className="w-full rounded-xl border border-slate-300 p-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+          className="w-full rounded-xl border border-slate-300 p-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none"
         />
 
         {fotoPreviewUrl && (
@@ -139,7 +143,7 @@ export const BitacoraPage: React.FC = () => {
             <button
               type="button"
               onClick={limpiarFoto}
-              className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-white shadow"
+              className="absolute -right-2 -top-2 flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white shadow"
               aria-label="Quitar foto"
             >
               <X className="h-4 w-4" />
@@ -147,8 +151,8 @@ export const BitacoraPage: React.FC = () => {
           </div>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-          <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+        <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
+          <label className="inline-flex min-h-[46px] cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap">
             <Camera className="h-4 w-4 text-slate-500" />
             <span>Cámara o galería</span>
             <input
@@ -164,7 +168,7 @@ export const BitacoraPage: React.FC = () => {
           <button
             type="submit"
             disabled={guardando || (!nota.trim() && !fotoArchivo)}
-            className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+            className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-40 whitespace-nowrap"
           >
             <Send className="h-4 w-4" />
             <span>{guardando ? 'Guardando...' : 'Guardar nota'}</span>
@@ -182,11 +186,12 @@ export const BitacoraPage: React.FC = () => {
               entrada.foto_url.startsWith('http'))
               ? entrada.foto_url
               : null);
+          const falloImagen = Boolean(imagenesConError[entrada.id]);
 
           return (
             <article
               key={entrada.id}
-              className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2.5"
+              className="space-y-2.5 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
                 <div className="flex items-center gap-2">
@@ -207,25 +212,43 @@ export const BitacoraPage: React.FC = () => {
                 )}
               </div>
 
-              <p className="text-sm leading-relaxed text-slate-800 whitespace-pre-wrap">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
                 {entrada.nota}
               </p>
 
-              {imagenSrc && (
+              {imagenSrc && !falloImagen && (
                 <img
                   src={imagenSrc}
                   alt="Evidencia fotográfica de campo"
                   referrerPolicy="no-referrer"
+                  onError={() =>
+                    setImagenesConError((prev) => ({
+                      ...prev,
+                      [entrada.id]: true,
+                    }))
+                  }
                   className="max-h-72 w-full rounded-xl border border-slate-200 object-cover sm:w-auto"
                 />
+              )}
+
+              {imagenSrc && falloImagen && (
+                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-500">
+                  <ImageOff className="h-4 w-4 shrink-0 text-slate-400" />
+                  <span>
+                    No se pudo cargar la vista previa de la fotografía.
+                  </span>
+                </div>
               )}
             </article>
           );
         })}
 
         {entradas.length === 0 && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-            Aún no hay entradas en la bitácora de este trabajo.
+          <div className="rounded-2xl border border-slate-200 bg-white">
+            <EmptyState
+              title="Sin entradas en la bitácora"
+              description="Registra notas o fotografías de campo; funcionan incluso sin conexión."
+            />
           </div>
         )}
       </div>

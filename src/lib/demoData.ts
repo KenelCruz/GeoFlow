@@ -35,7 +35,7 @@ export const USUARIO_DEMO: UsuarioSesion = {
 export const EMPRESAS_DEMO: Empresa[] = [
   {
     id: 'emp-demo-001',
-    nombre: 'Topografía Caribe Ficticia SRL',
+    nombre: 'AIA Services',
     rnc: '1-31-00001-1',
     zona_horaria: 'America/Santo_Domingo',
   },

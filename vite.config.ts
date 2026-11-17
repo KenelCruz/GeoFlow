@@ -87,8 +87,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
-          type: 'module',
+          enabled: false,
         },
       }),
       // Copia src/assets a dist/ para resolver rutas relativas en producción

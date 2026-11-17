@@ -11,7 +11,10 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-import { aplicarTransicionEstadoTrabajo } from '../domain/operacion';
+import {
+  aplicarTransicionEstadoTrabajo,
+  decidirFuenteDeDatos,
+} from '../domain/operacion';
 import type {
   BitacoraEntrada,
   EstadoTrabajo,
@@ -58,6 +61,8 @@ interface OperacionContextValue {
   ultimoErrorSincronizacion: string | null;
   cargandoDatos: boolean;
   errorOperacion: string | null;
+  cacheRespaldoDisponible: boolean;
+  aceptarCacheRespaldo: () => Promise<void>;
   limpiarErrorOperacion: () => void;
   // CRUD Trabajos
   guardarTrabajo: (
@@ -123,8 +128,23 @@ function blobADataUrl(blob: Blob): Promise<string> {
 }
 
 function traducirErrorSupabase(mensaje: string): string {
-  if (mensaje.includes('row-level security')) {
+  const lower = mensaje.toLowerCase();
+  if (lower.includes('row-level security') || lower.includes('permission denied')) {
     return 'No tienes permisos suficientes en tu rol actual para realizar esta acción.';
+  }
+  if (
+    lower.includes('does not exist') ||
+    lower.includes('could not find the table') ||
+    lower.includes('pgrst205')
+  ) {
+    return 'Falta una tabla o migración requerida en la base de datos.';
+  }
+  if (
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('load failed')
+  ) {
+    return 'Error de red al comunicarse con el servidor.';
   }
   return mensaje;
 }
@@ -152,10 +172,14 @@ export const OperacionProvider: React.FC<{ children: React.ReactNode }> = ({
   >(null);
   const [cargandoDatos, setCargandoDatos] = useState(false);
   const [errorOperacion, setErrorOperacion] = useState<string | null>(null);
+  const [cacheRespaldoDisponible, setCacheRespaldoDisponible] = useState(false);
 
   const empresaId = empresaActiva?.id ?? null;
 
-  const limpiarErrorOperacion = () => setErrorOperacion(null);
+  const limpiarErrorOperacion = () => {
+    setErrorOperacion(null);
+    setCacheRespaldoDisponible(false);
+  };
 
   // Resuelve URLs firmadas para fotos almacenadas en el bucket privado bitacora-fotos
   const resolverPreviewsBitacora = useCallback(
@@ -215,6 +239,7 @@ export const OperacionProvider: React.FC<{ children: React.ReactNode }> = ({
     const cargar = async () => {
       setCargandoDatos(true);
       setErrorOperacion(null);
+      setCacheRespaldoDisponible(false);
 
       let bitacoraOffline: BitacoraEntrada[] = [];
       try {
@@ -231,106 +256,175 @@ export const OperacionProvider: React.FC<{ children: React.ReactNode }> = ({
 
       if (isSupabaseConfigured && supabase) {
         if (isOnline) {
-          const [resT, resP, resV, resAP, resAV, resB] = await Promise.all([
-            supabase
-              .from('trabajos')
-              .select('*')
-              .eq('empresa_id', empresaId)
-              .order('fecha_prevista', { ascending: true }),
-            supabase
-              .from('personal')
-              .select('*')
-              .eq('empresa_id', empresaId)
-              .order('nombre', { ascending: true }),
-            supabase
-              .from('vehiculos')
-              .select('*')
-              .eq('empresa_id', empresaId)
-              .order('nombre', { ascending: true }),
-            supabase
-              .from('trabajo_personal')
-              .select('*')
-              .eq('empresa_id', empresaId),
-            supabase
-              .from('trabajo_vehiculo')
-              .select('*')
-              .eq('empresa_id', empresaId),
-            supabase
-              .from('bitacora')
-              .select('*')
-              .eq('empresa_id', empresaId)
-              .order('fecha_hora', { ascending: false }),
-          ]);
+          let errorRemotoMsg: string | null = null;
 
-          if (!activo) return;
+          try {
+            const [resT, resP, resV, resAP, resAV, resB] = await Promise.all([
+              supabase
+                .from('trabajos')
+                .select('*')
+                .eq('empresa_id', empresaId)
+                .order('fecha_prevista', { ascending: true }),
+              supabase
+                .from('personal')
+                .select('*')
+                .eq('empresa_id', empresaId)
+                .order('nombre', { ascending: true }),
+              supabase
+                .from('vehiculos')
+                .select('*')
+                .eq('empresa_id', empresaId)
+                .order('nombre', { ascending: true }),
+              supabase
+                .from('trabajo_personal')
+                .select('*')
+                .eq('empresa_id', empresaId),
+              supabase
+                .from('trabajo_vehiculo')
+                .select('*')
+                .eq('empresa_id', empresaId),
+              supabase
+                .from('bitacora')
+                .select('*')
+                .eq('empresa_id', empresaId)
+                .order('fecha_hora', { ascending: false }),
+            ]);
 
-          const primerError =
-            resT.error ||
-            resP.error ||
-            resV.error ||
-            resAP.error ||
-            resAV.error ||
-            resB.error;
+            if (!activo) return;
 
-          if (!primerError) {
-            const listaT = (resT.data as Trabajo[]) ?? [];
-            const listaP = (resP.data as Personal[]) ?? [];
-            const listaV = (resV.data as Vehiculo[]) ?? [];
-            const listaAP = (resAP.data as TrabajoPersonal[]) ?? [];
-            const listaAV = (resAV.data as TrabajoVehiculo[]) ?? [];
+            const primerError =
+              resT.error ||
+              resP.error ||
+              resV.error ||
+              resAP.error ||
+              resAV.error ||
+              resB.error;
 
-            setTrabajos(listaT);
-            setPersonal(listaP);
-            setVehiculos(listaV);
-            setAsignacionesPersonal(listaAP);
-            setAsignacionesVehiculo(listaAV);
-
-            try {
-              await guardarCacheOperacion({
-                empresa_id: empresaId,
-                trabajos: listaT,
-                personal: listaP,
-                vehiculos: listaV,
-                asignacionesPersonal: listaAP,
-                asignacionesVehiculo: listaAV,
-                actualizado_en: new Date().toISOString(),
+            if (!primerError) {
+              decidirFuenteDeDatos({
+                isOnline: true,
+                huboErrorRemoto: false,
+                hayCacheDisponible: false,
               });
-            } catch {
-              // Ignorar error de cuota en IndexedDB
+
+              const listaT = (resT.data as Trabajo[]) ?? [];
+              const listaP = (resP.data as Personal[]) ?? [];
+              const listaV = (resV.data as Vehiculo[]) ?? [];
+              const listaAP = (resAP.data as TrabajoPersonal[]) ?? [];
+              const listaAV = (resAV.data as TrabajoVehiculo[]) ?? [];
+
+              setTrabajos(listaT);
+              setPersonal(listaP);
+              setVehiculos(listaV);
+              setAsignacionesPersonal(listaAP);
+              setAsignacionesVehiculo(listaAV);
+
+              try {
+                await guardarCacheOperacion({
+                  empresa_id: empresaId,
+                  trabajos: listaT,
+                  personal: listaP,
+                  vehiculos: listaV,
+                  asignacionesPersonal: listaAP,
+                  asignacionesVehiculo: listaAV,
+                  actualizado_en: new Date().toISOString(),
+                });
+              } catch {
+                // Ignorar error de cuota en IndexedDB
+              }
+
+              const remotas = await resolverPreviewsBitacora(
+                (resB.data as BitacoraEntrada[]) ?? []
+              );
+              const idsRemotos = new Set(remotas.map((b) => b.id));
+              const combinadas = [
+                ...bitacoraOffline.filter((b) => !idsRemotos.has(b.id)),
+                ...remotas,
+              ].sort((a, b) => b.fecha_hora.localeCompare(a.fecha_hora));
+
+              if (activo) {
+                setBitacora(combinadas);
+                setCargandoDatos(false);
+              }
+              return;
             }
 
-            const remotas = await resolverPreviewsBitacora(
-              (resB.data as BitacoraEntrada[]) ?? []
-            );
-            const idsRemotos = new Set(remotas.map((b) => b.id));
-            const combinadas = [
-              ...bitacoraOffline.filter((b) => !idsRemotos.has(b.id)),
-              ...remotas,
-            ].sort((a, b) => b.fecha_hora.localeCompare(a.fecha_hora));
-
-            if (activo) {
-              setBitacora(combinadas);
-              setCargandoDatos(false);
-            }
-            return;
+            errorRemotoMsg = primerError.message;
+          } catch (err) {
+            if (!activo) return;
+            errorRemotoMsg =
+              err instanceof Error
+                ? err.message
+                : 'No se pudo conectar con el servidor.';
           }
+
+          // Hay conexión pero la consulta remota falló: no caer silenciosamente al caché
+          let hayCache = false;
+          try {
+            const cache = await obtenerCacheOperacion(empresaId);
+            hayCache = Boolean(cache);
+          } catch {
+            hayCache = false;
+          }
+
+          const decision = decidirFuenteDeDatos({
+            isOnline: true,
+            huboErrorRemoto: true,
+            hayCacheDisponible: hayCache,
+            usuarioAceptoCache: false,
+          });
+
+          if (activo) {
+            if (!decision.usarCache) {
+              setTrabajos([]);
+              setPersonal([]);
+              setVehiculos([]);
+              setAsignacionesPersonal([]);
+              setAsignacionesVehiculo([]);
+              setBitacora([]);
+            }
+            if (decision.mostrarError) {
+              setErrorOperacion(
+                `No se pudieron cargar los datos desde el servidor: ${traducirErrorSupabase(
+                  errorRemotoMsg ?? 'Error desconocido.'
+                )}`
+              );
+            }
+            setCacheRespaldoDisponible(decision.puedeUsarCacheOpcional);
+            setCargandoDatos(false);
+          }
+          return;
         }
 
-        // Sin conexión (o fallo de red) con Supabase configurado: leer caché offline de IndexedDB
+        // Sin conexión con Supabase configurado: evaluar caché offline de IndexedDB
+        let cache = null;
         try {
-          const cache = await obtenerCacheOperacion(empresaId);
-          if (activo && cache) {
+          cache = await obtenerCacheOperacion(empresaId);
+        } catch {
+          cache = null;
+        }
+
+        const decisionOffline = decidirFuenteDeDatos({
+          isOnline: false,
+          huboErrorRemoto: false,
+          hayCacheDisponible: Boolean(cache),
+        });
+
+        if (activo) {
+          if (decisionOffline.usarCache && cache) {
             setTrabajos(cache.trabajos);
             setPersonal(cache.personal);
             setVehiculos(cache.vehiculos);
             setAsignacionesPersonal(cache.asignacionesPersonal);
             setAsignacionesVehiculo(cache.asignacionesVehiculo);
+          } else {
+            setTrabajos([]);
+            setPersonal([]);
+            setVehiculos([]);
+            setAsignacionesPersonal([]);
+            setAsignacionesVehiculo([]);
           }
-        } catch {
-          // Sin caché disponible
-        }
 
-        if (activo) {
           setBitacora(
             bitacoraOffline.sort((a, b) =>
               b.fecha_hora.localeCompare(a.fecha_hora)
@@ -461,6 +555,39 @@ export const OperacionProvider: React.FC<{ children: React.ReactNode }> = ({
       sincronizarColaAhora();
     }
   }, [isOnline, pendientesSincronizar, sincronizarColaAhora]);
+
+  const aceptarCacheRespaldo = useCallback(async () => {
+    if (!empresaId) return;
+    try {
+      const [cache, bitacoraOffline] = await Promise.all([
+        obtenerCacheOperacion(empresaId),
+        obtenerBitacoraLocalPorEmpresa(empresaId),
+      ]);
+      const decision = decidirFuenteDeDatos({
+        isOnline,
+        huboErrorRemoto: true,
+        hayCacheDisponible: Boolean(cache),
+        usuarioAceptoCache: true,
+      });
+
+      if (decision.usarCache && cache) {
+        setTrabajos(cache.trabajos);
+        setPersonal(cache.personal);
+        setVehiculos(cache.vehiculos);
+        setAsignacionesPersonal(cache.asignacionesPersonal);
+        setAsignacionesVehiculo(cache.asignacionesVehiculo);
+        setBitacora(
+          bitacoraOffline.sort((a, b) =>
+            b.fecha_hora.localeCompare(a.fecha_hora)
+          )
+        );
+        setErrorOperacion(null);
+        setCacheRespaldoDisponible(false);
+      }
+    } catch {
+      setErrorOperacion('No se pudo leer el respaldo local guardado.');
+    }
+  }, [empresaId, isOnline]);
 
   const exigirConexionParaAdmin = () => {
     if (isSupabaseConfigured && !isOnline) {
@@ -947,6 +1074,8 @@ export const OperacionProvider: React.FC<{ children: React.ReactNode }> = ({
         ultimoErrorSincronizacion,
         cargandoDatos,
         errorOperacion,
+        cacheRespaldoDisponible,
+        aceptarCacheRespaldo,
         limpiarErrorOperacion,
         guardarTrabajo,
         actualizarEstadoTrabajo,

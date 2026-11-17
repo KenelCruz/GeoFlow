@@ -19,6 +19,7 @@ import { SeleccionEmpresaPage } from './pages/SeleccionEmpresaPage';
 import { TrabajoDetallePage } from './pages/TrabajoDetallePage';
 import { TrabajosPage } from './pages/TrabajosPage';
 import { VehiculosPage } from './pages/VehiculosPage';
+import { VisorGeoPage } from './pages/VisorGeoPage';
 
 const RutaAutenticada: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -85,6 +86,7 @@ export default function App() {
               <Route path="/agenda" element={<AgendaPage />} />
               <Route path="/personal" element={<PersonalPage />} />
               <Route path="/vehiculos" element={<VehiculosPage />} />
+              <Route path="/visor-geo" element={<VisorGeoPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/trabajos" replace />} />
           </Routes>

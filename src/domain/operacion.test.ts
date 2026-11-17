@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   aplicarTransicionEstadoTrabajo,
+  decidirFuenteDeDatos,
+  ESTADOS_CAMPO_TECNICO,
   obtenerAdvertenciaVehiculo,
+  obtenerEstadosPermitidosPorRol,
   puedeActualizarEstadoCampo,
   puedeEliminarRegistros,
   puedeGestionarOperacion,
@@ -43,6 +46,109 @@ describe('Permisos por rol en operación', () => {
     expect(puedeActualizarEstadoCampo('coordinador')).toBe(true);
     expect(puedeActualizarEstadoCampo('tecnico')).toBe(true);
     expect(puedeActualizarEstadoCampo(null)).toBe(false);
+  });
+
+  it('limita al técnico a los estados operativos de campo y excluye estados comerciales/cobro', () => {
+    const estadosTecnico = obtenerEstadosPermitidosPorRol('tecnico');
+    expect(estadosTecnico).toEqual([...ESTADOS_CAMPO_TECNICO]);
+    expect(estadosTecnico).not.toContain('cotizado');
+    expect(estadosTecnico).not.toContain('aprobado');
+    expect(estadosTecnico).not.toContain('cobrado');
+
+    expect(obtenerEstadosPermitidosPorRol('admin')).toHaveLength(7);
+    expect(obtenerEstadosPermitidosPorRol('coordinador')).toHaveLength(7);
+    expect(obtenerEstadosPermitidosPorRol(null)).toEqual([]);
+  });
+});
+
+describe('Decisión de fuente de datos (remoto vs. caché offline)', () => {
+  it('usa datos remotos cuando está en línea y la consulta tiene éxito', () => {
+    expect(
+      decidirFuenteDeDatos({
+        isOnline: true,
+        huboErrorRemoto: false,
+        hayCacheDisponible: true,
+      })
+    ).toEqual({
+      fuente: 'remoto',
+      usarCache: false,
+      mostrarError: false,
+      puedeUsarCacheOpcional: false,
+    });
+  });
+
+  it('muestra error y no cae silenciosamente al caché cuando está en línea y falla', () => {
+    expect(
+      decidirFuenteDeDatos({
+        isOnline: true,
+        huboErrorRemoto: true,
+        hayCacheDisponible: true,
+      })
+    ).toEqual({
+      fuente: 'error_remoto',
+      usarCache: false,
+      mostrarError: true,
+      puedeUsarCacheOpcional: true,
+    });
+
+    expect(
+      decidirFuenteDeDatos({
+        isOnline: true,
+        huboErrorRemoto: true,
+        hayCacheDisponible: false,
+      })
+    ).toEqual({
+      fuente: 'error_remoto',
+      usarCache: false,
+      mostrarError: true,
+      puedeUsarCacheOpcional: false,
+    });
+  });
+
+  it('usa el caché en línea únicamente cuando el usuario lo acepta explícitamente', () => {
+    expect(
+      decidirFuenteDeDatos({
+        isOnline: true,
+        huboErrorRemoto: true,
+        hayCacheDisponible: true,
+        usuarioAceptoCache: true,
+      })
+    ).toEqual({
+      fuente: 'cache_respaldo_aceptado',
+      usarCache: true,
+      mostrarError: false,
+      puedeUsarCacheOpcional: false,
+    });
+  });
+
+  it('usa el caché local cuando no hay conexión y existe snapshot guardado', () => {
+    expect(
+      decidirFuenteDeDatos({
+        isOnline: false,
+        huboErrorRemoto: false,
+        hayCacheDisponible: true,
+      })
+    ).toEqual({
+      fuente: 'cache_offline',
+      usarCache: true,
+      mostrarError: false,
+      puedeUsarCacheOpcional: false,
+    });
+  });
+
+  it('informa ausencia de datos sin error remoto cuando no hay conexión ni caché', () => {
+    expect(
+      decidirFuenteDeDatos({
+        isOnline: false,
+        huboErrorRemoto: false,
+        hayCacheDisponible: false,
+      })
+    ).toEqual({
+      fuente: 'sin_datos_offline',
+      usarCache: false,
+      mostrarError: false,
+      puedeUsarCacheOpcional: false,
+    });
   });
 });
 

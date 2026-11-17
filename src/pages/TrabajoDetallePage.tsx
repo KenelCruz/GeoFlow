@@ -1,5 +1,5 @@
 /**
- * Detalle de un trabajo: edición completa (admin/coordinador), cambio de estado en campo,
+ * Detalle de un trabajo: edición completa (admin/coordinador), cambio de estado según rol,
  * asignación de personal y vehículo por fecha con detección de conflictos y acceso a bitácora.
  */
 import React, { useEffect, useMemo, useState } from 'react';
@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   BookOpen,
   Calendar,
+  Layers,
   MapPin,
   Pencil,
   Phone,
@@ -16,15 +17,14 @@ import {
   Trash2,
   Truck,
   Users,
-  X,
 } from 'lucide-react';
 import { ConflictoModal } from '../components/ConflictoModal';
+import { ModalSheet } from '../components/ui/ModalSheet';
 import {
   detectarConflictosPersonal,
   detectarConflictosVehiculo,
 } from '../domain/conflictos';
 import {
-  ESTADOS_TRABAJO,
   ETIQUETAS_CARGO,
   ETIQUETAS_ESTADO_TRABAJO,
   ETIQUETAS_ESTADO_VEHICULO,
@@ -32,6 +32,7 @@ import {
 } from '../domain/formatters';
 import {
   obtenerAdvertenciaVehiculo,
+  obtenerEstadosPermitidosPorRol,
   puedeActualizarEstadoCampo,
   puedeEliminarRegistros,
   puedeGestionarOperacion,
@@ -64,6 +65,7 @@ export const TrabajoDetallePage: React.FC = () => {
   const puedeGestionar = puedeGestionarOperacion(rolActivo);
   const puedeEliminar = puedeEliminarRegistros(rolActivo);
   const puedeCambiarEstado = puedeActualizarEstadoCampo(rolActivo);
+  const estadosPermitidos = obtenerEstadosPermitidosPorRol(rolActivo);
 
   const trabajo = trabajos.find((t) => t.id === id);
 
@@ -72,6 +74,7 @@ export const TrabajoDetallePage: React.FC = () => {
   );
   const [personalSeleccionado, setPersonalSeleccionado] = useState('');
   const [vehiculoSeleccionado, setVehiculoSeleccionado] = useState('');
+  const [confirmandoEliminar, setConfirmandoEliminar] = useState(false);
 
   // Modal de edición completa del trabajo
   const [editModalAbierto, setEditModalAbierto] = useState(false);
@@ -88,6 +91,7 @@ export const TrabajoDetallePage: React.FC = () => {
     if (trabajo?.fecha_prevista) {
       setFechaAsignacion(trabajo.fecha_prevista);
     }
+    setConfirmandoEliminar(false);
   }, [trabajo?.id, trabajo?.fecha_prevista]);
 
   // Estado para modal de conflictos
@@ -172,7 +176,7 @@ export const TrabajoDetallePage: React.FC = () => {
   };
 
   const handleCambiarEstado = async (nuevoEstado: EstadoTrabajo) => {
-    if (!puedeCambiarEstado) return;
+    if (!puedeCambiarEstado || !estadosPermitidos.includes(nuevoEstado)) return;
     try {
       await actualizarEstadoTrabajo(trabajo.id, nuevoEstado);
     } catch {
@@ -258,6 +262,24 @@ export const TrabajoDetallePage: React.FC = () => {
     }
   };
 
+  const handleQuitarPersonal = async (asignacionId: string) => {
+    if (!puedeGestionar) return;
+    try {
+      await quitarPersonalDeTrabajo(asignacionId);
+    } catch {
+      // Error mostrado en banner
+    }
+  };
+
+  const handleQuitarVehiculo = async (asignacionId: string) => {
+    if (!puedeGestionar) return;
+    try {
+      await quitarVehiculoDeTrabajo(asignacionId);
+    } catch {
+      // Error mostrado en banner
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Navegación superior */}
@@ -270,20 +292,29 @@ export const TrabajoDetallePage: React.FC = () => {
           <span>Trabajos</span>
         </Link>
 
-        <Link
-          to={`/trabajos/${trabajo.id}/bitacora`}
-          className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 whitespace-nowrap shrink-0"
-        >
-          <BookOpen className="h-4 w-4" />
-          <span>Bitácora ({totalBitacora})</span>
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to={`/visor-geo?trabajoId=${trabajo.id}`}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50 whitespace-nowrap shrink-0"
+          >
+            <Layers className="h-4 w-4 text-slate-600" />
+            <span>Visor KMZ</span>
+          </Link>
+          <Link
+            to={`/trabajos/${trabajo.id}/bitacora`}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 whitespace-nowrap shrink-0"
+          >
+            <BookOpen className="h-4 w-4" />
+            <span>Bitácora ({totalBitacora})</span>
+          </Link>
+        </div>
       </div>
 
       {/* Información general */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-5">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1.5">
-            <h1 className="text-xl font-bold text-slate-900">
+          <div className="min-w-0 space-y-1.5">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 [text-wrap:balance]">
               {trabajo.cliente}
             </h1>
             <p className="text-sm font-medium text-slate-700">
@@ -294,6 +325,11 @@ export const TrabajoDetallePage: React.FC = () => {
                 <MapPin className="h-3.5 w-3.5 text-slate-400" />
                 {trabajo.ubicacion_texto || 'Sin ubicación'}
               </span>
+              {trabajo.lat !== null && trabajo.lng !== null && (
+                <span className="font-mono tabular-nums text-slate-600">
+                  {trabajo.lat.toFixed(5)}, {trabajo.lng.toFixed(5)}
+                </span>
+              )}
               {trabajo.contacto && (
                 <span className="inline-flex items-center gap-1.5">
                   <Phone className="h-3.5 w-3.5 text-slate-400" />
@@ -307,28 +343,38 @@ export const TrabajoDetallePage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <select
-              aria-label="Estado del trabajo"
-              disabled={!puedeCambiarEstado}
-              value={trabajo.estado}
-              onChange={(e) =>
-                handleCambiarEstado(e.target.value as EstadoTrabajo)
-              }
-              className="min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-emerald-600 focus:outline-none disabled:opacity-50"
-            >
-              {ESTADOS_TRABAJO.map((est) => (
-                <option key={est} value={est}>
-                  {ETIQUETAS_ESTADO_TRABAJO[est]}
-                </option>
-              ))}
-            </select>
+          <div className="flex flex-wrap items-center gap-2">
+            {puedeCambiarEstado ? (
+              <select
+                aria-label="Estado del trabajo"
+                value={trabajo.estado}
+                onChange={(e) =>
+                  void handleCambiarEstado(e.target.value as EstadoTrabajo)
+                }
+                className="min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-emerald-600 focus:outline-none"
+              >
+                {!estadosPermitidos.includes(trabajo.estado) && (
+                  <option value={trabajo.estado} disabled>
+                    {ETIQUETAS_ESTADO_TRABAJO[trabajo.estado]}
+                  </option>
+                )}
+                {estadosPermitidos.map((est) => (
+                  <option key={est} value={est}>
+                    {ETIQUETAS_ESTADO_TRABAJO[est]}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="inline-flex min-h-[44px] items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700">
+                {ETIQUETAS_ESTADO_TRABAJO[trabajo.estado]}
+              </span>
+            )}
 
             {puedeGestionar && (
               <button
                 type="button"
                 onClick={abrirEdicion}
-                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
                 aria-label="Editar trabajo"
                 title="Editar trabajo"
               >
@@ -339,8 +385,8 @@ export const TrabajoDetallePage: React.FC = () => {
             {puedeEliminar && (
               <button
                 type="button"
-                onClick={handleEliminar}
-                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                onClick={() => setConfirmandoEliminar((v) => !v)}
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
                 aria-label="Eliminar trabajo"
                 title="Eliminar trabajo"
               >
@@ -349,6 +395,30 @@ export const TrabajoDetallePage: React.FC = () => {
             )}
           </div>
         </div>
+
+        {confirmandoEliminar && puedeEliminar && (
+          <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-3.5 text-xs text-red-900 sm:flex-row sm:items-center sm:justify-between">
+            <span className="font-medium">
+              ¿Eliminar este trabajo y sus asignaciones de forma permanente?
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setConfirmandoEliminar(false)}
+                className="min-h-[38px] rounded-lg border border-red-200 bg-white px-3 font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleEliminar()}
+                className="min-h-[38px] rounded-lg bg-red-600 px-3 font-semibold text-white hover:bg-red-700"
+              >
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Selector de fecha para asignaciones */}
@@ -359,8 +429,9 @@ export const TrabajoDetallePage: React.FC = () => {
               Asignación de brigada y vehículos
             </h2>
             <p className="text-xs text-slate-500">
-              El sistema verifica conflictos si un técnico o vehículo ya tiene
-              otro trabajo ese día.
+              {puedeGestionar
+                ? 'El sistema verifica conflictos si un técnico o vehículo ya tiene otro trabajo ese día.'
+                : 'Brigada y vehículos programados para este levantamiento.'}
             </p>
           </div>
           {puedeGestionar && (
@@ -438,7 +509,7 @@ export const TrabajoDetallePage: React.FC = () => {
                     {puedeGestionar && (
                       <button
                         type="button"
-                        onClick={() => quitarPersonalDeTrabajo(a.id)}
+                        onClick={() => void handleQuitarPersonal(a.id)}
                         className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
                         aria-label="Quitar personal"
                       >
@@ -518,7 +589,7 @@ export const TrabajoDetallePage: React.FC = () => {
                     {puedeGestionar && (
                       <button
                         type="button"
-                        onClick={() => quitarVehiculoDeTrabajo(a.id)}
+                        onClick={() => void handleQuitarVehiculo(a.id)}
                         className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
                         aria-label="Quitar vehículo"
                       >
@@ -539,128 +610,114 @@ export const TrabajoDetallePage: React.FC = () => {
       </section>
 
       {/* Modal para editar trabajo existente */}
-      {editModalAbierto && puedeGestionar && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
-          <div className="max-h-[90vh] w-full overflow-y-auto rounded-t-3xl bg-white p-6 shadow-xl sm:max-w-lg sm:rounded-2xl">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900">
-                Editar trabajo
-              </h2>
-              <button
-                type="button"
-                onClick={() => setEditModalAbierto(false)}
-                className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"
-                aria-label="Cerrar"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleGuardarEdicion} className="mt-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Cliente *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editCliente}
-                  onChange={(e) => setEditCliente(e.target.value)}
-                  className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 text-sm focus:border-emerald-600 focus:outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">
-                    Contacto
-                  </label>
-                  <input
-                    type="text"
-                    value={editContacto}
-                    onChange={(e) => setEditContacto(e.target.value)}
-                    className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 text-sm focus:border-emerald-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">
-                    Fecha prevista *
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={editFechaPrevista}
-                    onChange={(e) => setEditFechaPrevista(e.target.value)}
-                    className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 text-sm focus:border-emerald-600 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Ubicación (referencia)
-                </label>
-                <input
-                  type="text"
-                  value={editUbicacion}
-                  onChange={(e) => setEditUbicacion(e.target.value)}
-                  className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 text-sm focus:border-emerald-600 focus:outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">
-                    Tipo de levantamiento
-                  </label>
-                  <input
-                    type="text"
-                    value={editTipo}
-                    onChange={(e) => setEditTipo(e.target.value)}
-                    className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 text-sm focus:border-emerald-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">
-                    Responsable
-                  </label>
-                  <select
-                    value={editResponsableId}
-                    onChange={(e) => setEditResponsableId(e.target.value)}
-                    className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm focus:border-emerald-600 focus:outline-none"
-                  >
-                    <option value="">Sin responsable asignado</option>
-                    {personal
-                      .filter((p) => p.activo)
-                      .map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.nombre}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => setEditModalAbierto(false)}
-                  className="min-h-[44px] rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={guardandoEdicion}
-                  className="min-h-[44px] rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {guardandoEdicion ? 'Guardando...' : 'Guardar cambios'}
-                </button>
-              </div>
-            </form>
+      <ModalSheet
+        open={editModalAbierto && puedeGestionar}
+        title="Editar trabajo"
+        onClose={() => setEditModalAbierto(false)}
+      >
+        <form onSubmit={handleGuardarEdicion} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              Cliente *
+            </label>
+            <input
+              type="text"
+              required
+              value={editCliente}
+              onChange={(e) => setEditCliente(e.target.value)}
+              className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 text-sm focus:border-emerald-600 focus:outline-none"
+            />
           </div>
-        </div>
-      )}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-slate-700">
+                Contacto
+              </label>
+              <input
+                type="text"
+                value={editContacto}
+                onChange={(e) => setEditContacto(e.target.value)}
+                className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 text-sm focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700">
+                Fecha prevista *
+              </label>
+              <input
+                type="date"
+                required
+                value={editFechaPrevista}
+                onChange={(e) => setEditFechaPrevista(e.target.value)}
+                className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 text-sm focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              Ubicación (referencia)
+            </label>
+            <input
+              type="text"
+              value={editUbicacion}
+              onChange={(e) => setEditUbicacion(e.target.value)}
+              className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 text-sm focus:border-emerald-600 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-slate-700">
+                Tipo de levantamiento
+              </label>
+              <input
+                type="text"
+                value={editTipo}
+                onChange={(e) => setEditTipo(e.target.value)}
+                className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 text-sm focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700">
+                Responsable
+              </label>
+              <select
+                value={editResponsableId}
+                onChange={(e) => setEditResponsableId(e.target.value)}
+                className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm focus:border-emerald-600 focus:outline-none"
+              >
+                <option value="">Sin responsable asignado</option>
+                {personal
+                  .filter((p) => p.activo)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={() => setEditModalAbierto(false)}
+              className="min-h-[44px] rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={guardandoEdicion}
+              className="min-h-[44px] rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              {guardandoEdicion ? 'Guardando...' : 'Guardar cambios'}
+            </button>
+          </div>
+        </form>
+      </ModalSheet>
 
       <ConflictoModal
         conflictos={conflictosPendientes}
@@ -669,11 +726,16 @@ export const TrabajoDetallePage: React.FC = () => {
           setAccionConfirmada(null);
         }}
         onConfirmar={async () => {
-          if (accionConfirmada) {
-            await accionConfirmada();
+          try {
+            if (accionConfirmada) {
+              await accionConfirmada();
+            }
+          } catch {
+            // Error mostrado en banner
+          } finally {
+            setConflictosPendientes([]);
+            setAccionConfirmada(null);
           }
-          setConflictosPendientes([]);
-          setAccionConfirmada(null);
         }}
       />
     </div>

@@ -3,21 +3,15 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Truck,
-  Users,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, Truck, Users } from 'lucide-react';
+import { EstadoTrabajoTexto } from '../components/ui/EstadoText';
+import { PageHeader } from '../components/ui/PageHeader';
+import { ListSkeleton } from '../components/ui/StateViews';
 import {
   obtenerAgendaPorFecha,
   obtenerFechasSemana,
 } from '../domain/conflictos';
-import {
-  ETIQUETAS_ESTADO_TRABAJO,
-  formatearFechaCorta,
-  obtenerFechaHoyISO,
-} from '../domain/formatters';
+import { formatearFechaCorta, obtenerFechaHoyISO } from '../domain/formatters';
 import { useOperacionData } from '../hooks/useOperacionData';
 
 function desplazarFecha(fechaISO: string, dias: number): string {
@@ -36,6 +30,7 @@ export const AgendaPage: React.FC = () => {
     vehiculos,
     asignacionesPersonal,
     asignacionesVehiculo,
+    cargandoDatos,
   } = useOperacionData();
 
   const [vista, setVista] = useState<'semanal' | 'diaria'>('semanal');
@@ -72,55 +67,49 @@ export const AgendaPage: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      {/* Encabezado y selector de vista */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Agenda operativa
-          </h1>
-          <p className="text-sm text-slate-600">
-            Programación de trabajos, brigadas y vehículos
-          </p>
-        </div>
-
-        <div className="inline-flex rounded-xl bg-slate-200/70 p-1 self-start">
-          <button
-            type="button"
-            onClick={() => setVista('diaria')}
-            className={`min-h-[40px] rounded-lg px-4 text-xs font-semibold transition-colors whitespace-nowrap ${
-              vista === 'diaria'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Diaria
-          </button>
-          <button
-            type="button"
-            onClick={() => setVista('semanal')}
-            className={`min-h-[40px] rounded-lg px-4 text-xs font-semibold transition-colors whitespace-nowrap ${
-              vista === 'semanal'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Semanal
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Agenda operativa"
+        subtitle="Programación de trabajos, brigadas y vehículos"
+        action={
+          <div className="inline-flex rounded-xl bg-slate-200/70 p-1">
+            <button
+              type="button"
+              onClick={() => setVista('diaria')}
+              className={`min-h-[40px] rounded-lg px-4 text-xs font-semibold transition-colors whitespace-nowrap ${
+                vista === 'diaria'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Diaria
+            </button>
+            <button
+              type="button"
+              onClick={() => setVista('semanal')}
+              className={`min-h-[40px] rounded-lg px-4 text-xs font-semibold transition-colors whitespace-nowrap ${
+                vista === 'semanal'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Semanal
+            </button>
+          </div>
+        }
+      />
 
       {/* Controles de navegación de fecha */}
       <div className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3">
         <button
           type="button"
           onClick={() => setFechaBase((f) => desplazarFecha(f, -salto))}
-          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50"
+          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition-colors hover:bg-slate-50"
           aria-label="Anterior"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <input
             type="date"
             aria-label="Seleccionar fecha"
@@ -131,7 +120,7 @@ export const AgendaPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setFechaBase(obtenerFechaHoyISO())}
-            className="min-h-[42px] rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap"
+            className="min-h-[42px] rounded-xl border border-slate-200 px-3.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
           >
             Hoy
           </button>
@@ -140,7 +129,7 @@ export const AgendaPage: React.FC = () => {
         <button
           type="button"
           onClick={() => setFechaBase((f) => desplazarFecha(f, salto))}
-          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50"
+          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition-colors hover:bg-slate-50"
           aria-label="Siguiente"
         >
           <ChevronRight className="h-5 w-5" />
@@ -148,87 +137,91 @@ export const AgendaPage: React.FC = () => {
       </div>
 
       {/* Días */}
-      <div className="space-y-4">
-        {agendas.map((dia) => {
-          const esHoy = dia.fecha === obtenerFechaHoyISO();
-          return (
-            <section
-              key={dia.fecha}
-              className={`rounded-2xl border bg-white overflow-hidden ${
-                esHoy ? 'border-emerald-500' : 'border-slate-200'
-              }`}
-            >
-              <header className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-bold capitalize text-slate-900">
-                    {formatearFechaCorta(dia.fecha)}
-                  </h2>
-                  {esHoy && (
-                    <span className="text-xs font-semibold text-emerald-700">
-                      · Hoy
-                    </span>
-                  )}
-                </div>
-                <span className="text-xs font-mono tabular-nums text-slate-500">
-                  {dia.trabajos.length} trabajo(s)
-                </span>
-              </header>
+      {cargandoDatos && trabajos.length === 0 ? (
+        <ListSkeleton rows={4} />
+      ) : (
+        <div className="space-y-4">
+          {agendas.map((dia) => {
+            const esHoy = dia.fecha === obtenerFechaHoyISO();
+            return (
+              <section
+                key={dia.fecha}
+                className={`overflow-hidden rounded-2xl border bg-white ${
+                  esHoy ? 'border-emerald-500' : 'border-slate-200'
+                }`}
+              >
+                <header className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold capitalize text-slate-900">
+                      {formatearFechaCorta(dia.fecha)}
+                    </h2>
+                    {esHoy && (
+                      <span className="text-xs font-semibold text-emerald-700">
+                        · Hoy
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs font-mono tabular-nums text-slate-500">
+                    {dia.trabajos.length} trabajo(s)
+                  </span>
+                </header>
 
-              {dia.trabajos.length === 0 ? (
-                <div className="px-4 py-4 text-xs text-slate-400">
-                  Sin levantamientos programados.
-                </div>
-              ) : (
-                <ul className="divide-y divide-slate-100">
-                  {dia.trabajos.map(
-                    ({ trabajo, personalAsignado, vehiculosAsignados }) => (
-                      <li key={trabajo.id} className="p-4">
-                        <Link
-                          to={`/trabajos/${trabajo.id}`}
-                          className="block space-y-2 hover:opacity-90"
-                        >
-                          <div className="flex flex-wrap items-baseline justify-between gap-2">
-                            <span className="text-sm font-semibold text-slate-900">
-                              {trabajo.cliente}
-                            </span>
-                            <span className="text-xs font-semibold text-emerald-700">
-                              {ETIQUETAS_ESTADO_TRABAJO[trabajo.estado]}
-                            </span>
-                          </div>
+                {dia.trabajos.length === 0 ? (
+                  <div className="px-4 py-4 text-xs text-slate-400">
+                    Sin levantamientos programados.
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {dia.trabajos.map(
+                      ({ trabajo, personalAsignado, vehiculosAsignados }) => (
+                        <li key={trabajo.id}>
+                          <Link
+                            to={`/trabajos/${trabajo.id}`}
+                            className="block space-y-2 p-4 transition-colors hover:bg-slate-50"
+                          >
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                              <span className="text-sm font-semibold text-slate-900">
+                                {trabajo.cliente}
+                              </span>
+                              <span className="text-xs">
+                                <EstadoTrabajoTexto estado={trabajo.estado} />
+                              </span>
+                            </div>
 
-                          <div className="text-xs text-slate-500">
-                            {trabajo.tipo_levantamiento} ·{' '}
-                            {trabajo.ubicacion_texto || 'Sin ubicación'}
-                          </div>
+                            <div className="text-xs text-slate-500">
+                              {trabajo.tipo_levantamiento} ·{' '}
+                              {trabajo.ubicacion_texto || 'Sin ubicación'}
+                            </div>
 
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-1 text-xs text-slate-600">
-                            <span className="inline-flex items-center gap-1.5">
-                              <Users className="h-3.5 w-3.5 text-slate-400" />
-                              {personalAsignado.length > 0
-                                ? personalAsignado
-                                    .map((p) => p.nombre)
-                                    .join(', ')
-                                : 'Sin personal'}
-                            </span>
-                            <span className="inline-flex items-center gap-1.5">
-                              <Truck className="h-3.5 w-3.5 text-slate-400" />
-                              {vehiculosAsignados.length > 0
-                                ? vehiculosAsignados
-                                    .map((v) => v.nombre)
-                                    .join(', ')
-                                : 'Sin vehículo'}
-                            </span>
-                          </div>
-                        </Link>
-                      </li>
-                    )
-                  )}
-                </ul>
-              )}
-            </section>
-          );
-        })}
-      </div>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-0.5 text-xs text-slate-600">
+                              <span className="inline-flex items-center gap-1.5">
+                                <Users className="h-3.5 w-3.5 text-slate-400" />
+                                {personalAsignado.length > 0
+                                  ? personalAsignado
+                                      .map((p) => p.nombre)
+                                      .join(', ')
+                                  : 'Sin personal'}
+                              </span>
+                              <span className="inline-flex items-center gap-1.5">
+                                <Truck className="h-3.5 w-3.5 text-slate-400" />
+                                {vehiculosAsignados.length > 0
+                                  ? vehiculosAsignados
+                                      .map((v) => v.nombre)
+                                      .join(', ')
+                                  : 'Sin vehículo'}
+                              </span>
+                            </div>
+                          </Link>
+                        </li>
+                      )
+                    )}
+                  </ul>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
